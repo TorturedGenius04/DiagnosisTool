@@ -1,7 +1,17 @@
 from Tkinter import *  # Imports
 import tkFont
 import tkMessageBox as tkBox
+import sqlite3
 
+conn = sqlite3.connect('devices.db')
+c = conn.cursor()
+
+#c.execute("CREATE TABLE IF NOT EXISTS Devices (Device text, Path text, Pos int)")
+#c.execute("CREATE TABLE IF NOT EXISTS Fixes (Code int, Fix text)")
+#c.execute("INSERT INTO KeyWords VALUES ('Display', 0)")
+#c.execute("INSERT INTO Fixes VALUES (0, 'Try fully charging the device')")
+
+conn.commit()
 
 class Application(Frame):  # Stores info and functions dedicated to the window
 
@@ -42,7 +52,9 @@ class Application(Frame):  # Stores info and functions dedicated to the window
         self.diagnoseBtn["command"] = self.diagnose_issues  # Diagnose issues launcher
         self.diagnoseBtn.pack({"side": "left"})
 
-        self.contactBtn["text"] = "Contact a technician"
+        # Change to look for device
+        self.contactBtn["text"] = "Look for device"
+        self.contactBtn["command"] = self.look_for_device
         self.contactBtn.pack({"side": "right"})
 
     def diagnose_issues(self):  # Starts the Diagnosis window
@@ -138,6 +150,139 @@ class Application(Frame):  # Stores info and functions dedicated to the window
         else:
             tkBox.showerror("Error", "An error has occurred")
 
+    def look_for_device(self):
+
+        self.dWindow = Toplevel(self) # Main frame to hold content
+        self.dFrame = Frame(self.dWindow)
+
+        self.dListBox = Listbox(self.dFrame)
+        self.dSelectBtn = Button(self.dFrame)
+
+        self.dFrame.pack({"padx": "10", "pady": "10"})
+
+        c.execute("SELECT * FROM Devices")
+        data = c.fetchall()
+        for row in data:
+            self.dListBox.insert(row[2], row[0])
+
+        self.dListBox.pack({"side": "left"})
+
+        self.dSelectBtn["text"] = "Select"
+        self.dSelectBtn["command"] = self.start_search
+        self.dSelectBtn.pack({"side": "right", "padx": "5"})
+
+    def start_search(self):
+
+        selection = self.dListBox.get(self.dListBox.curselection())
+
+        self.dev_questions = []
+        self.dev_questionTypes = []
+        self.dev_questionAns = []
+
+        c.execute("SELECT * FROM Devices WHERE Device=?", (selection,))
+        for row in c.fetchall():
+            self.dev_device = row[0]
+            self.dev = sqlite3.connect(row[1])
+            self.devC = self.dev.cursor()
+            #devC.execute("CREATE TABLE IF NOT EXISTS DataQuestions (Question text, Pos int, ResAns int)")
+            #devC.execute("CREATE TABLE IF NOT EXISTS Answers (Answer text, Pos int)")
+            self.devC.execute("SELECT * FROM DataQuestions")
+            for row in self.devC.fetchall():
+                self.dev_questions.append(row[0])
+                self.dev_questionTypes.append(row[1])
+                self.dev_questionAns.append(row[2])
+
+        self.open_questions_panel()
+        self.dWindow.destroy()  # kill look for devices panel
+
+    def open_questions_panel(self):
+        self.qWindow = Toplevel(self)  # Main frame to hold content
+        self.qFrame = Frame(self.qWindow)
+
+        self.qLabel = Label(self.qFrame)
+        self.qInput = Entry(self.qFrame)
+        self.qButton = Button(self.qFrame)
+
+        self.dev_index = 0;
+        self.data = []
+
+        self.qLabel["text"] = str(self.dev_questions[self.dev_index])
+        self.qLabel.pack({"padx": 10, "pady": 10, "side": "left"})
+
+        self.qInput.pack({"side": "left", "padx": 10, "pady": 10})
+
+        self.qButton["text"] = "Enter"
+        self.qButton["command"] = self.ans_question
+        self.qButton.pack({"side": "right", "padx": 10, "pady": 10})
+
+        self.qFrame.pack({"padx": 10, "pady": 10})  # Create
+
+    def ans_question(self):
+
+        ans = self.qInput.get()
+
+        if not validate_input(str(ans)): return
+
+        questionType = self.dev_questionTypes[self.dev_index]
+        questionAnsIndex = self.dev_questionAns[self.dev_index]
+
+        yes = False  # Assign vars
+        no = False
+        other = True
+
+        for value in self.yesAnswers:  # Checks if the user as inputted a yes
+            if str(self.qInput.get()).upper() == value:  # Reduces errors by capitalising all the characters
+                yes = True
+                other = False
+
+        for value in self.noAnswers:  # See above
+            if str(self.qInput.get()).upper() == value:
+                no = True
+                other = False
+
+        say = ""
+
+        if str(questionType) == "data":
+            self.data.append(str(self.dev_device) + " Attribute " + str(ans))
+            print self.data
+        if (questionAnsIndex is 1 and yes) or (questionAnsIndex is 0 and no):
+            self.devC.execute("SELECT * FROM Answers WHERE Pos=?", (questionType,))
+            for row in self.devC.fetchall():
+                say = row[0]
+            tkBox.showinfo("Fix", say)
+        elif self.dev_index < len(self.dev_questions)-1:
+            if str(questionType) != "data":
+                self.data.append(str(self.dev_questions[self.dev_index]) + " Ans " + str(ans))
+                print self.data
+            self.dev_index += 1
+            self.qLabel["text"] = str(self.dev_questions[self.dev_index])
+            self.qLabel.pack({"padx": 10, "pady": 10, "side": "left"})
+        else:
+            var = tkBox.askyesno('Send Data', "Send data to technician?")
+            if var == 1:
+
+                self.send_data()
+
+                tkBox.showinfo('Sent', 'Sent data to technician')
+                self.qWindow.destroy()
+            else:
+                tkBox.showinfo('Canceled', 'No data was sent')
+                self.qWindow.destroy()
+
+    def send_data(self):
+
+        #c.execute("CREATE TABLE IF NOT EXISTS CaseNumbers (Number int)")
+        c.execute("SELECT * FROM CaseNumbers")
+        num = 1
+        for row in c.fetchall():
+            num = int(row[0]) + 1
+        c.execute("INSERT INTO CaseNumbers (Number) VALUES (?)", (num,))
+        conn.commit()
+        path = "CaseFiles/" + str(num) + ".txt"
+        file = open(path, 'w')
+        file.write(str(self.data))
+        file.close()
+
     # Close window method
     def close_window(self):
         self.window.destroy()
@@ -154,4 +299,5 @@ def validate_input(text):
 root = Tk()
 app = Application("Application", master=root)  # Attach the application to the root of TK
 app.mainloop()  # Initiate the main loop
+conn.close()
 root.destroy()  # Called on mainloop stopped
