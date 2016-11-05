@@ -1,7 +1,17 @@
 from Tkinter import *  # Imports
 import tkFont
 import tkMessageBox as tkBox
+import sqlite3
 
+conn = sqlite3.connect('example.db')
+c = conn.cursor()
+
+#c.execute("CREATE TABLE IF NOT EXISTS KeyWords (Key text, Code int)")
+#c.execute("CREATE TABLE IF NOT EXISTS Fixes (Code int, Fix text)")
+#c.execute("INSERT INTO KeyWords VALUES ('Display', 0)")
+#c.execute("INSERT INTO Fixes VALUES (0, 'Try fully charging the device')")
+
+#conn.commit()
 
 class Application(Frame):  # Stores info and functions dedicated to the window
 
@@ -42,7 +52,8 @@ class Application(Frame):  # Stores info and functions dedicated to the window
         self.diagnoseBtn["command"] = self.diagnose_issues  # Diagnose issues launcher
         self.diagnoseBtn.pack({"side": "left"})
 
-        self.contactBtn["text"] = "Contact a technician"
+        self.contactBtn["text"] = "Query database"
+        self.contactBtn["command"] = self.run_query
         self.contactBtn.pack({"side": "right"})
 
     def diagnose_issues(self):  # Starts the Diagnosis window
@@ -138,6 +149,57 @@ class Application(Frame):  # Stores info and functions dedicated to the window
         else:
             tkBox.showerror("Error", "An error has occurred")
 
+    def run_query(self):
+
+        self.qWindow = Toplevel(self) # Main frame to hold content
+
+        self.qMessage = Label(self.qWindow)
+        self.qInputBox = Entry(self.qWindow)
+        self.qSubmit = Button(self.qWindow)
+
+        self.qMessage["text"] = "Submit your query"
+        self.qMessage.pack({"padx": 10, "pady": 10, "side": "left"})
+        self.qInputBox.pack({"side": "left", "padx": 10, "pady": 10})
+
+        self.qSubmit["text"] = "Enter"
+        self.qSubmit["command"] = self.query
+        self.qSubmit.pack({"side": "right", "padx": 10, "pady": 10})
+
+    def query(self):
+
+        text = self.qInputBox.get()
+
+        if not validate_input(text): return
+
+        keyWords = text.split(' ')
+        results = []
+        endResults = []
+
+        for keyWord in keyWords:
+            query = str(keyWord).upper()
+            c.execute("SELECT * FROM KeyWords WHERE Key=?", (query,))
+            data = c.fetchall()
+            for row in data:
+                results.append(row[1])
+
+        for result in results:
+            c.execute("SELECT * FROM Fixes WHERE Code=?", (int(result),))
+            data = c.fetchall()
+            for row in data:
+                endResults.append(row[1])
+
+        fix = ""
+        for result in endResults:
+            if fix is "":
+                fix += str(result)
+            else:
+                fix += "\n\n" + str(result)
+
+        if fix is not "":
+            tkBox.showinfo('Fix!', fix)
+        else:
+            tkBox.showerror('None!', "No possible fixes have been found in our database")
+
     # Close window method
     def close_window(self):
         self.window.destroy()
@@ -154,4 +216,5 @@ def validate_input(text):
 root = Tk()
 app = Application("Application", master=root)  # Attach the application to the root of TK
 app.mainloop()  # Initiate the main loop
+conn.close()
 root.destroy()  # Called on mainloop stopped
